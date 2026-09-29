@@ -17,10 +17,13 @@ class NBNApi:
     LOOKUP_URL = "https://places.nbnco.net.au/places/v1/autocomplete?query="
     DETAIL_URL = "https://places.nbnco.net.au/places/v2/details/"
     HEADERS = {"referer": "https://www.nbnco.com.au/"}
+    TIMEOUT_SECONDS = 30  # without a timeout a hung connection blocks a worker thread forever
 
     def __init__(self):
         self.session = requests.Session()
-        self.session.mount("http://", HTTPAdapter(max_retries=(Retry(total=5))))
+        adapter = HTTPAdapter(max_retries=Retry(total=5, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504]))
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
 
     def close(self):
         """Close the cache."""
@@ -29,7 +32,7 @@ class NBNApi:
 
     def get_nbn_data_json(self, url) -> dict:
         """Gets a JSON response from a URL."""
-        r = self.session.get(url, stream=True, headers=self.HEADERS)
+        r = self.session.get(url, stream=True, headers=self.HEADERS, timeout=self.TIMEOUT_SECONDS)
         r.raise_for_status()
         return r.json()
 
@@ -42,7 +45,7 @@ class NBNApi:
         suggestions = [s for s in suggestions if "id" in s and s["id"].startswith("LOC")]
         suggestions = sorted(
             suggestions,
-            key=lambda s: difflib.SequenceMatcher(None, address, s["formattedAddress"]).ratio(),
+            key=lambda s: difflib.SequenceMatcher(None, address.upper(), s["formattedAddress"].upper()).ratio(),
             reverse=True,
         )
         if suggestions:
