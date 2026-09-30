@@ -293,6 +293,9 @@ function getDotType(tech, upgrade, date, status, generated) {
     return dotTypes.Unknown;
 }
 
+// commits_url -> Promise of the GitHub commit list for that suburb
+var commitHistoryCache = {};
+
 // load GeoJSON from an external file
 function loadSuburb(state_file, commit, first_load=false) {
     if (state_file == "") {
@@ -467,11 +470,16 @@ function loadSuburb(state_file, commit, first_load=false) {
         // update url
         window.history.pushState("", "", "?suburb=" + url.split("/").pop().split(".")[0] + "&state=" + url.split("/").slice(-2)[0] + "&commit=" + commit);
 
-        commits_url = "https://api.github.com/repos/LukePrior/nbn-upgrade-map/commits?path=results/" + state_file + ".geojson"
-        fetch(commits_url).then(res => res.json()).then(data => {
+        const commits_url = "https://api.github.com/repos/LukePrior/nbn-upgrade-map/commits?path=results/" + state_file + ".geojson"
+        // cache the commit history per suburb, so changing the date doesn't refetch it from GitHub
+        if (!(commits_url in commitHistoryCache)) {
+            commitHistoryCache[commits_url] = fetch(commits_url).then(res => res.json());
+        }
+        commitHistoryCache[commits_url].then(data => {
             // e.g. GitHub API rate limit: an error object rather than a list of commits
             if (!Array.isArray(data)) {
                 console.warn("Unable to load commit history:", data.message);
+                delete commitHistoryCache[commits_url];  // don't cache failures
                 return;
             }
             var dropdownHTML = '<select id="commit" class="commit-selector" onchange="loadSuburb(default_state+&quot;/&quot;+default_suburb, this.value)" style="width: 120px;">';
@@ -492,7 +500,10 @@ function loadSuburb(state_file, commit, first_load=false) {
             dropdownHTML += '</select>';
             addControlWithHTML('date-selector', dropdownHTML)
             $('.commit-selector').select2();
-        }).catch(err => console.warn("Unable to load commit history:", err));
+        }).catch(err => {
+            console.warn("Unable to load commit history:", err);
+            delete commitHistoryCache[commits_url];
+        });
 
         gtag('event', 'suburb_load', { 'suburb': default_suburb, 'state': default_state, 'commit': commit });
     });
